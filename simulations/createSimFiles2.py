@@ -15,31 +15,40 @@ def main():
     parser = argparse.ArgumentParser(description="Run simulations in parallel")
     parser.add_argument("inPath", help="Input directory path")
     parser.add_argument("outPath", nargs="?", default="", help="Output directory path")
-
-    args = parser.parse_args()
-    inPath = f"/{args.inPath}"
-    outPath = f"/{args.outPath}" if args.outPath else inPath
-
-    genPath = f"genEvents{inPath}"
-    simPath = f"simEvents{outPath}"
-    epicPath = "/home/dhevan/eic/epic/epic_ip6_extended.xml"
-
+    
+    #fileType = "idealElectrons"
+    fileType = "beamEffectsElectrons"
+    
+    # directories genEvents and simEvents needs to exist
+    inPath = ""
+    outPath = ""
+    if len(sys.argv) > 1: 
+      inPath = "/" + sys.argv[1]
+    if len(sys.argv) > 2: 
+      outPath = "/" + sys.argv[2]
+    
+    if not outPath:
+      outPath = inPath
+    
+    genPath = "genEvents{0}".format(inPath)
+    simPath = "simEvents{0}".format(outPath)
+    epicPath = "/data/tomble/eic/epic/install/share/epic/epic_ip6_extended.xml"
+    
     if not os.path.exists(simPath):
-        print(f"Out dir doesn't exist. Creating directory {simPath}")
-        os.makedirs(simPath)
-
+        print("Out dir doesn't exist.  Create a dir called " + simPath)
+        exit()
+    
     if len(os.listdir(simPath)) != 0:
-        print(f"{simPath} directory not empty. Clear the directory.")
-        exit()
-
-    det_dir = os.getenv('DETECTOR_PATH', '')
-    if not det_dir:
-        print("DETECTOR_PATH environment variable not set.")
-        exit()
-
-    compact_dir = os.path.join(det_dir, 'compact')
-    cmd = f'cp -r {compact_dir} {simPath}'
-
+      print("{0} directory not empty.  Clear directory".format(simPath))
+      exit()
+    
+    det_dir = os.environ['DETECTOR_PATH']
+    compact_dir = det_dir + '/compact'
+    cmd = 'cp -r {0} {1}'.format(compact_dir, simPath)
+    
+    # cp over epic compact dir for parameter reference 
+    os.system('cp -r {0} {1}'.format(compact_dir, simPath) )
+    
     # Copy epic compact dir for parameter reference 
     subprocess.run(cmd, shell=True, check=True)
 
