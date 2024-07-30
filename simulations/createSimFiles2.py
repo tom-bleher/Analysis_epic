@@ -1,82 +1,65 @@
 import os
 import sys
 import re
+import argparse
 import multiprocessing
-import logging
+import subprocess
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-#fileType = "idealElectrons"
-fileType = "beamEffectsElectrons"
-
-# directories genEvents and simEvents needs to exist
-inPath = ""
-outPath = ""
-if len(sys.argv) > 1: 
-  inPath = "/" + sys.argv[1]
-if len(sys.argv) > 2: 
-  outPath = "/" + sys.argv[2]
-
-if not outPath:
-  outPath = inPath
-
-genPath = "genEvents{0}".format(inPath)
-simPath = "simEvents{0}".format(outPath)
-epicPath = "/home/dhevan/eic/epic/epic_ip6_extended.xml"
-
-# Validate paths
-if not os.path.exists(simPath):
-    logging.error("Output directory doesn't exist. Create a directory called " + simPath)
-    exit(1)
-
-if len(os.listdir(simPath)) != 0:
-    logging.error("{0} directory not empty. Clear the directory.".format(simPath))
-    exit(1)
-
-det_dir = os.environ.get('DETECTOR_PATH')
-if not det_dir:
-    logging.error("Environment variable 'DETECTOR_PATH' is not set.")
-    exit(1)
-
-compact_dir = os.path.join(det_dir, 'compact')
-cmd = 'cp -r {0} {1}'.format(compact_dir, simPath)
-
-# Copy over epic compact dir for parameter reference 
-os.system('cp -r {0} {1}'.format(compact_dir, simPath))
-
-def runSims(cmd):
+def runSims(command):
     try:
-        os.system(cmd)
-    except Exception as e:
-        logging.error(f"Error executing command: {cmd}\nException: {e}")
+        subprocess.run(command, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Command failed with error: {e}")
 
-commands = []
+def main():
+    parser = argparse.ArgumentParser(description="Run simulations in parallel")
+    parser.add_argument("inPath", help="Input directory path")
+    parser.add_argument("outPath", nargs="?", default="", help="Output directory path")
 
-# Create command strings
-for file in sorted(os.listdir(genPath)):
-    if fileType not in file:
-        continue
-    inFile = os.path.join(genPath, file)
-    fileNum = re.search(r"\d+\.+\d\.", inFile).group()
-    cmd = "ddsim --inputFiles {0} --outputFile {1}/output_{2}edm4hep.root --compactFile {3} -N 5000".format(inFile, simPath, fileNum, epicPath)
-    logging.info(f"Command: {cmd}")
-    commands.append(cmd)
+    args = parser.parse_args()
+    inPath = f"/{args.inPath}"
+    outPath = f"/{args.outPath}" if args.outPath else inPath
 
-# Determine the number of available CPU cores
-num_cores = multiprocessing.cpu_count()
-logging.info(f"Using {num_cores} CPU cores")
+    genPath = f"genEvents{inPath}"
+    simPath = f"simEvents{outPath}"
+    epicPath = "/home/dhevan/eic/epic/epic_ip6_extended.xml"
 
-# Start Pool of processes
-with multiprocessing.Pool(num_cores) as pool:
-    try:
-        # Run processes (synchronous, it is a blocking command)
-        pool.map(runSims, commands)
-    except Exception as e:
-        logging.error(f"Error in multiprocessing pool: {e}")
-    finally:
-        # Ensure the pool is properly closed
-        pool.close()
-        pool.join()
+    if not os.path.exists(simPath):
+        print(f"Out dir doesn't exist. Creating directory {simPath}")
+        os.makedirs(simPath)
 
-logging.info("Simulation processing complete.")
+    if len(os.listdir(simPath)) != 0:
+        print(f"{simPath} directory not empty. Clear the directory.")
+        exit()
+
+    det_dir = os.getenv('DETECTOR_PATH', '')
+    if not det_dir:
+        print("DETECTOR_PATH environment variable not set.")
+        exit()
+
+    compact_dir = os.path.join(det_dir, 'compact')
+    cmd = f'cp -r {compact_dir} {simPath}'
+
+    # Copy epic compact dir for parameter reference 
+    subprocess.run(cmd, shell=True, check=True)
+
+    commands = []
+
+    # Create command strings
+    for file in sorted(os.listdir(genPath)):
+        if fileType not in file:
+            continue
+        inFile = os.path.join(genPath, file)
+        fileNum = re.search(r"\d+\.\d+\.", inFile).group()
+        cmd = f"ddsim --inputFiles {inFile} --outputFile {simPath}/output_{fileNum}edm4hep.root --compactFile {epicPath} -N 5000"
+        print(cmd)
+        commands.append(cmd)
+
+    # Start Pool of processes
+    pool = multiprocessing.Pool(8)  # 8 processes to start
+
+    # Run processes (synchronous, it is a blocking command)
+    pool.map(runSims, commands)
+
+if __name__ == "__main__":
+    main()
