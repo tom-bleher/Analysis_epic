@@ -1,74 +1,51 @@
 import os
 import sys
 import re
-import argparse
 import multiprocessing
-import subprocess
 
-def runSims(command):
-    try:
-        subprocess.run(command, shell=True, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Command failed with error: {e}")
+def setup_paths(argv):
+    inPath = "/" + argv[1] if len(argv) > 1 else ""
+    outPath = "/" + argv[2] if len(argv) > 2 else inPath
 
-def main():
-    parser = argparse.ArgumentParser(description="Run simulations in parallel")
-    parser.add_argument("inPath", help="Input directory path")
-    parser.add_argument("outPath", nargs="?", default="", help="Output directory path")
-    
-    #fileType = "idealElectrons"
-    fileType = "beamEffectsElectrons"
-    
-    # directories genEvents and simEvents needs to exist
-    inPath = ""
-    outPath = ""
-    if len(sys.argv) > 1: 
-      inPath = "/" + sys.argv[1]
-    if len(sys.argv) > 2: 
-      outPath = "/" + sys.argv[2]
-    
-    if not outPath:
-      outPath = inPath
-    
     genPath = "genEvents{0}".format(inPath)
     simPath = "simEvents{0}".format(outPath)
-    epicPath = "/data/tomble/eic/epic/install/share/epic/epic_ip6_extended.xml"
-    
+    return genPath, simPath
+
+def check_paths(simPath):
     if not os.path.exists(simPath):
-        print("Out dir doesn't exist.  Create a dir called " + simPath)
-        exit()
-    
+        raise FileNotFoundError("Out dir doesn't exist. Create a dir called " + simPath)
     if len(os.listdir(simPath)) != 0:
-      print("{0} directory not empty.  Clear directory".format(simPath))
-      exit()
-    
+        raise FileExistsError("{0} directory not empty. Clear directory".format(simPath))
+
+def copy_compact_dir(simPath):
     det_dir = os.environ['DETECTOR_PATH']
     compact_dir = det_dir + '/compact'
-    cmd = 'cp -r {0} {1}'.format(compact_dir, simPath)
-    
-    # cp over epic compact dir for parameter reference 
-    os.system('cp -r {0} {1}'.format(compact_dir, simPath) )
-    
-    # Copy epic compact dir for parameter reference 
-    subprocess.run(cmd, shell=True, check=True)
+    os.system('cp -r {0} {1}'.format(compact_dir, simPath))
 
+def generate_commands(genPath, simPath, epicPath, fileType):
     commands = []
-
-    # Create command strings
     for file in sorted(os.listdir(genPath)):
         if fileType not in file:
             continue
         inFile = os.path.join(genPath, file)
-        fileNum = re.search(r"\d+\.\d+\.", inFile).group()
-        cmd = f"ddsim --inputFiles {inFile} --outputFile {simPath}/output_{fileNum}edm4hep.root --compactFile {epicPath} -N 5000"
-        print(cmd)
+        fileNum = re.search(r"\d+\.+\d\.", inFile).group()
+        cmd = "ddsim --inputFiles {0} --outputFile {1}/output_{2}edm4hep.root --compactFile {3} -N 5000".format(inFile, simPath, fileNum, epicPath)
         commands.append(cmd)
+    return commands
 
-    # Start Pool of processes
-    pool = multiprocessing.Pool(8)  # 8 processes to start
-
-    # Run processes (synchronous, it is a blocking command)
+def run_simulation(commands, pool_size=8):
+    pool = multiprocessing.Pool(pool_size)
     pool.map(runSims, commands)
 
+def runSims(cmd):
+    os.system(cmd)
+
 if __name__ == "__main__":
-    main()
+    fileType = "beamEffectsElectrons"
+    epicPath = "/home/dhevan/eic/epic/epic_ip6_extended.xml"
+
+    genPath, simPath = setup_paths(sys.argv)
+    check_paths(simPath)
+    copy_compact_dir(simPath)
+    commands = generate_commands(genPath, simPath, epicPath, fileType)
+    run_simulation(commands)
